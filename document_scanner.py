@@ -51,9 +51,12 @@ def document_ratio(contour):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--image', required=True, help='Path to the image to be scanned')
+    parser.add_argument('-c', '--color', action='store_true', help='If the scanned image should be in color')
     args = parser.parse_args()
 
     image_path = Path(args.image)
+    scan_type = 'color' if args.color else 'grayscale'
+
     if not image_path.exists():
         print(f'Error: {image_path} not found')
         exit(1)
@@ -103,10 +106,22 @@ if __name__ == '__main__':
     warped_image = cv2.warpPerspective(original, perspective_transform, (H, W))
 
     # We give the warped image a paper scan effect
-    warped_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
-    T = threshold_local(warped_image, 11, offset=10, method='gaussian')
-    scan = (warped_image > T).astype('uint8') * 255
-    scan = imutils.resize(scan, height=original.shape[0]) # resize the scanned image to the original image size
+    warped_image_gray = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
+    T = threshold_local(warped_image_gray, 11, offset=10, method='gaussian')
+    binary_mask = (warped_image_gray > T).astype('uint8') * 255
+
+    if scan_type == 'grayscale':
+        scan = binary_mask
+    else:
+        lab_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2LAB)  # LAB = Lightness, A (green to red), B (blue to yellow)
+        L, A, B = cv2.split(lab_image)
+        L = cv2.bitwise_and(L, L, mask=binary_mask)  # Keep only the lightness channel where the paper is
+        scan = cv2.merge([L, A, B])
+        scan = cv2.cvtColor(scan, cv2.COLOR_LAB2BGR)
+
+    # interpolate the scanned image to have higher resolution
+    scan = cv2.resize(scan, (original.shape[0], int(original.shape[0] * 1/document_ratio)), interpolation=cv2.INTER_CUBIC)
+
 
     cv2.imshow('Original Image', original)
     cv2.imshow('Scan', scan)
