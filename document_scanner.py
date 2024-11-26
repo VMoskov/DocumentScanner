@@ -6,7 +6,7 @@ from pathlib import Path
 from skimage.filters import threshold_local
 
 
-def paper_contour(contours):
+def get_paper_contour(contours):
     '''Finds the paper contour in the list of contours'''
     for ctr in contours:
         # Approximate the contour
@@ -35,6 +35,15 @@ def order_points(points):
     return ordered_points
 
 
+def detect_color(image, threshold=50):
+    '''Determines if the document is colored or grayscale'''
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    saturation = hsv[:, :, 1]
+    mean_saturation = np.mean(saturation)
+    print(f'Mean Saturation: {mean_saturation}')
+    return mean_saturation > threshold
+
+
 def document_ratio(contour):
     '''Calculates the aspect ratio of the document'''
     top_width = np.linalg.norm(contour[1] - contour[0])
@@ -51,11 +60,9 @@ def document_ratio(contour):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--image', required=True, help='Path to the image to be scanned')
-    parser.add_argument('-c', '--color', action='store_true', help='If the scanned image should be in color')
     args = parser.parse_args()
 
     image_path = Path(args.image)
-    scan_type = 'color' if args.color else 'grayscale'
 
     if not image_path.exists():
         print(f'Error: {image_path} not found')
@@ -83,7 +90,11 @@ if __name__ == '__main__':
     contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]  # Get the top 5 contours
 
     # Find the paper contour
-    paper_contour = paper_contour(contours)
+    paper_contour = get_paper_contour(contours)
+
+    if paper_contour is None:
+        print('Error: Paper not found')
+        exit(1)
 
     # Show the paper contour
     cv2.drawContours(image, [paper_contour], -1, (0, 255, 0), 2)
@@ -109,7 +120,9 @@ if __name__ == '__main__':
     T = threshold_local(warped_image_gray, 11, offset=10, method='gaussian')
     binary_mask = (warped_image_gray > T).astype('uint8') * 255
 
-    if scan_type == 'grayscale':
+    is_colored = detect_color(warped_image)  # Dynamically determine if the document is colored or grayscale
+
+    if not is_colored:
         scan = binary_mask
     else:
         lab_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2LAB)  # LAB = Lightness, A (green to red), B (blue to yellow)
@@ -125,7 +138,6 @@ if __name__ == '__main__':
 
     # interpolate the scanned image to have higher resolution
     scan = cv2.resize(scan, (original.shape[0], int(original.shape[0] * 1/document_ratio)), interpolation=cv2.INTER_CUBIC)
-
 
     cv2.imshow('Original Image', original)
     cv2.imshow('Scan', scan)
