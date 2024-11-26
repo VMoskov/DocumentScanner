@@ -102,7 +102,6 @@ if __name__ == '__main__':
 
     destination_points = np.array([[0, 0], [H, 0], [0, W], [H, W]], dtype='float32')
     perspective_transform = cv2.getPerspectiveTransform(paper_contour, destination_points)
-
     warped_image = cv2.warpPerspective(original, perspective_transform, (H, W))
 
     # We give the warped image a paper scan effect
@@ -115,7 +114,12 @@ if __name__ == '__main__':
     else:
         lab_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2LAB)  # LAB = Lightness, A (green to red), B (blue to yellow)
         L, A, B = cv2.split(lab_image)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))  # Contrast Limited Adaptive Histogram Equalization
+        L = clahe.apply(L)
         L = cv2.bitwise_and(L, L, mask=binary_mask)  # Keep only the lightness channel where the paper is
+        alpha = 1.25
+        beta = -20
+        L = cv2.convertScaleAbs(L, alpha=alpha, beta=beta)  # Enhance the lightness channel
         scan = cv2.merge([L, A, B])
         scan = cv2.cvtColor(scan, cv2.COLOR_LAB2BGR)
 
