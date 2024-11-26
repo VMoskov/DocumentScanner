@@ -35,16 +35,7 @@ def order_points(points):
     return ordered_points
 
 
-def detect_color(image, threshold=50):
-    '''Determines if the document is colored or grayscale'''
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    saturation = hsv[:, :, 1]
-    mean_saturation = np.mean(saturation)
-    print(f'Mean Saturation: {mean_saturation}')
-    return mean_saturation > threshold
-
-
-def document_ratio(contour):
+def calculate_document_ratio(contour):
     '''Calculates the aspect ratio of the document'''
     top_width = np.linalg.norm(contour[1] - contour[0])
     bottom_width = np.linalg.norm(contour[3] - contour[2])
@@ -55,6 +46,43 @@ def document_ratio(contour):
     height = (left_height + right_height) / 2
 
     return width / height
+
+
+def detect_color(image, threshold=50):
+    '''Determines if the document is colored or grayscale'''
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    saturation = hsv[:, :, 1]
+    mean_saturation = np.mean(saturation)
+    return mean_saturation > threshold
+
+
+def enhance_lightness(image, binary_mask, alpha=1.25, beta=-20):
+    '''Enhances the lightness channel of the LAB image'''
+    lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)  # LAB = Lightness, A (green to red), B (blue to yellow)
+    L, A, B = cv2.split(lab_image)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))  # Contrast Limited Adaptive Histogram Equalization
+    L = clahe.apply(L)
+    L = cv2.bitwise_and(L, L, mask=binary_mask)  # Keep only the lightness channel where the paper is
+    L = cv2.convertScaleAbs(L, alpha=alpha, beta=beta)  # Enhance the lightness channel
+    scan = cv2.merge([L, A, B])
+    scan = cv2.cvtColor(scan, cv2.COLOR_LAB2BGR)
+    return scan
+
+
+def diagnostic_output():
+    '''Shows the image with the title'''
+    ### Diagnostic Output 1 ###
+    cv2.imshow('Image', image)
+    cv2.imshow('Edges', edges)
+    cv2.waitKey(0)
+    ### Diagnostic Output 2 ###
+    cv2.imshow('Paper Contour', image_contour)
+    cv2.waitKey(0)
+    ### Diagnostic Output 3 ###
+    cv2.imshow('Original Image', original)
+    cv2.imshow('Scan', scan)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
@@ -78,11 +106,7 @@ if __name__ == '__main__':
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(gray, 75, 200)
 
-    # Show the original image and the edge detected image
-    cv2.imshow('Image', image)
-    cv2.imshow('Edges', edges)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    ### Diagnostic Output 1 ###
 
     # Find all the contours (geometric shapes surrounded by edges) in the edge detected image, and keep the top 5
     contours = cv2.findContours(edges.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)  
@@ -97,49 +121,38 @@ if __name__ == '__main__':
         exit(1)
 
     # Show the paper contour
-    cv2.drawContours(image, [paper_contour], -1, (0, 255, 0), 2)
-    cv2.imshow('Paper Contour', image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    image_contour = image.copy()
+    cv2.drawContours(image_contour, [paper_contour], -1, (0, 255, 0), 2)
+    
+    ### Diagnostic Output 2 ###
 
     # Apply a four point perspective transform to get a top-down view of the paper
     paper_contour = paper_contour.reshape(4, 2).astype(np.float32) * scale_ratio
     paper_contour = order_points(paper_contour)
-    document_ratio = document_ratio(paper_contour)  # Get the aspect ratio of the document
+    aspect_ratio = calculate_document_ratio(paper_contour)  # Get the aspect ratio of the document
 
     # We want the document to be 800 pixels high
     H = 800
-    W = int(H * 1/document_ratio)
+    W = int(H * aspect_ratio)
 
-    destination_points = np.array([[0, 0], [H, 0], [0, W], [H, W]], dtype='float32')
+    destination_points = np.array([[0, 0], [W, 0], [0, H], [W, H]], dtype='float32')
     perspective_transform = cv2.getPerspectiveTransform(paper_contour, destination_points)
-    warped_image = cv2.warpPerspective(original, perspective_transform, (H, W))
+    warped_image = cv2.warpPerspective(original, perspective_transform, (W, H))
 
     # We give the warped image a paper scan effect
-    warped_image_gray = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
-    T = threshold_local(warped_image_gray, 11, offset=10, method='gaussian')
-    binary_mask = (warped_image_gray > T).astype('uint8') * 255
+    warped_image_grayscale = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
+    T = threshold_local(warped_image_grayscale, 11, offset=10, method='gaussian')
+    binary_mask = (warped_image_grayscale > T).astype('uint8') * 255
 
     is_colored = detect_color(warped_image)  # Dynamically determine if the document is colored or grayscale
 
     if not is_colored:
         scan = binary_mask
     else:
-        lab_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2LAB)  # LAB = Lightness, A (green to red), B (blue to yellow)
-        L, A, B = cv2.split(lab_image)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))  # Contrast Limited Adaptive Histogram Equalization
-        L = clahe.apply(L)
-        L = cv2.bitwise_and(L, L, mask=binary_mask)  # Keep only the lightness channel where the paper is
-        alpha = 1.25
-        beta = -20
-        L = cv2.convertScaleAbs(L, alpha=alpha, beta=beta)  # Enhance the lightness channel
-        scan = cv2.merge([L, A, B])
-        scan = cv2.cvtColor(scan, cv2.COLOR_LAB2BGR)
+        scan = enhance_lightness(warped_image, binary_mask)
 
-    # interpolate the scanned image to have higher resolution
-    scan = cv2.resize(scan, (original.shape[0], int(original.shape[0] * 1/document_ratio)), interpolation=cv2.INTER_CUBIC)
+    # interpolate the scanned image to increase the resolution
+    scan = cv2.resize(scan, (int(original.shape[0] * aspect_ratio), original.shape[0]), interpolation=cv2.INTER_CUBIC)
 
-    cv2.imshow('Original Image', original)
-    cv2.imshow('Scan', scan)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    ### Diagnostic Output 3 ###
+    diagnostic_output()
