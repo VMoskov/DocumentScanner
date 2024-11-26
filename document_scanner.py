@@ -93,8 +93,8 @@ if __name__ == '__main__':
     paper_contour = order_points(paper_contour)
     document_ratio = document_ratio(paper_contour)  # Get the aspect ratio of the document
 
-    # Scanned document dimensions
-    H = original.shape[0]
+    # We want the document to be 800 pixels high
+    H = 800
     W = int(H * 1/document_ratio)
 
     destination_points = np.array([[0, 0], [H, 0], [0, W], [H, W]], dtype='float32')
@@ -106,6 +106,7 @@ if __name__ == '__main__':
     warped_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
     T = threshold_local(warped_image, 11, offset=10, method='gaussian')
     scan = (warped_image > T).astype('uint8') * 255
+    scan = imutils.resize(scan, height=original.shape[0]) # resize the scanned image to the original image size
 
     cv2.imshow('Original Image', original)
     cv2.imshow('Scan', scan)
