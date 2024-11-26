@@ -6,6 +6,20 @@ from pathlib import Path
 from skimage.filters import threshold_local
 
 
+def paper_contour(contours):
+    '''Finds the paper contour in the list of contours'''
+    for ctr in contours:
+        # Approximate the contour
+        perimeter = cv2.arcLength(ctr, True)
+        approximated_contour = cv2.approxPolyDP(ctr, 0.02 * perimeter, True)
+
+        # If the approximated contour has 4 points, then we can assume that we have found the paper
+        if len(approximated_contour) == 4:
+            return approximated_contour
+
+    return None
+
+
 def order_points(points):
     '''Orders the points in the contour such that the points are ordered clockwise starting from the top-left point'''
     ordered_points = np.zeros((4, 2), dtype='float32')  # top-left, top-right, bottom-left, bottom-right
@@ -65,16 +79,8 @@ if __name__ == '__main__':
     contours = imutils.grab_contours(contours)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]  # Get the top 5 contours
 
-    # Loop over the contours to find the paper contour
-    for ctr in contours:
-        # Approximate the contour
-        perimeter = cv2.arcLength(ctr, True)
-        approximated_contour = cv2.approxPolyDP(ctr, 0.02 * perimeter, True)
-
-        # If the approximated contour has 4 points, then we can assume that we have found the paper
-        if len(approximated_contour) == 4:
-            paper_contour = approximated_contour
-            break
+    # Find the paper contour
+    paper_contour = paper_contour(contours)
 
     # Show the paper contour
     cv2.drawContours(image, [paper_contour], -1, (0, 255, 0), 2)
@@ -86,9 +92,11 @@ if __name__ == '__main__':
     paper_contour = paper_contour.reshape(4, 2).astype(np.float32) * scale_ratio
     paper_contour = order_points(paper_contour)
     document_ratio = document_ratio(paper_contour)  # Get the aspect ratio of the document
+
     # We want the document to be 800 pixels high
     H = 800
     W = int(H * 1/document_ratio)
+    
     destination_points = np.array([[0, 0], [H, 0], [0, W], [H, W]], dtype='float32')
     perspective_transform = cv2.getPerspectiveTransform(paper_contour, destination_points)
 
