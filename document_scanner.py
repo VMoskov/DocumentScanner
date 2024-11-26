@@ -93,15 +93,21 @@ if __name__ == '__main__':
     paper_contour = order_points(paper_contour)
     document_ratio = document_ratio(paper_contour)  # Get the aspect ratio of the document
 
-    # We want the document to be 800 pixels high
-    H = 800
+    # Scanned document dimensions
+    H = original.shape[0]
     W = int(H * 1/document_ratio)
-    
+
     destination_points = np.array([[0, 0], [H, 0], [0, W], [H, W]], dtype='float32')
     perspective_transform = cv2.getPerspectiveTransform(paper_contour, destination_points)
 
     warped_image = cv2.warpPerspective(original, perspective_transform, (H, W))
+
+    # We give the warped image a paper scan effect
+    warped_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
+    T = threshold_local(warped_image, 11, offset=10, method='gaussian')
+    scan = (warped_image > T).astype('uint8') * 255
+
     cv2.imshow('Original Image', original)
-    cv2.imshow('Warped Image', warped_image)
+    cv2.imshow('Scan', scan)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
